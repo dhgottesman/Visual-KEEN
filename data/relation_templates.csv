@@ -1,0 +1,53 @@
+uri,relation,template
+P54,member of sports team,What sports team does [subj] play for?
+P106,occupation,What is [subj]'s occupation?
+P17,country,In what country is [subj]?
+P27,country of citizenship,What is [subj]'s country of citizenship?
+P19,place of birth,In what [obj_type] was [subj] born?
+P641,sport,What sport does [subj] play?
+P1412,"languages spoken, written or signed",What language does [subj] speak?
+P413,position played on team / speciality,What sports position does [subj] play?
+P50,author,Who is the author of [subj]?
+P1344,participant in,In what sports event did [subj] participate in?
+P20,place of death,In what [obj_type] was [subj] born?
+P495,country of origin,What is the country of origin of [subj]?
+P136,genre,What [obj_type] is [subj]?
+P69,educated at,What is the alma mater of [subj]?
+P407,language of work or name,What is the language of [subj]?
+P1598,consecrator,Who is the consecrator of [subj]?
+P123,publisher,Who is the publisher of [subj]?
+P40,child,Who is the child of [subj]?
+P102,member of political party,What is the political party associated with [subj]?
+P156,followed by,What [obj_type] follows [subj]?
+P140,religion or worldview,What is the religion of [subj]?
+P57,director,Who was the director of [subj]?
+P264,record label,What is the record label of [subj]?
+P58,screenwriter,Who was the screenwriter for [subj]?
+P103,native language,What is the native language of [subj]?
+P937,work location,In what [obj_type] does [subj] work in?
+P1532,country for sport,What country does [subj] play for?
+P36,capital,What is the capital of [subj]?
+P22,father,Who is the father of [subj]?
+P86,composer,Who was the composer of [subj]?
+P175,performer,Who is the performer of [subj]?
+P118,league,What sports league does [subj] play in?
+P26,spouse,Who is the spouse of [subj]?
+P162,producer,Who was the producer of [subj]?
+P3373,sibling,Who is the sibling of [subj]?
+P98,editor,Who is the editor of [subj]?
+P25,mother,Who is the mother of [subj]?
+P462,color,What color is [subj]?
+P676,lyrics by,Who wrote the lyrics of [subj]?
+P159,headquarters location,In what [obj_type] are the headquarters of [subj] located?
+P166,award received,What award did [subj] receive?
+P451,unmarried partner,Who is the partner of [subj]?
+P800,notable work,What is the notable work of [subj]?
+P800,notable work,What notable [obj_type] did [subj] create?
+P1303,instrument,What instrument does [subj] play?
+P1340,eye color,What is the eye color of [subj]?
+P1884,hair color,What is the hair color of [subj]?
+P39,position held,What position is held by [subj]?
+P101,field of work,What is the field of work of [subj]?
+P1327,partner in business or sport,Who is the business partner of [subj]?
+P102,member of political party,Which political party is [subj] affiliated with?
+

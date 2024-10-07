@@ -1,14 +1,10 @@
-import re
 import os
 import pandas as pd
-import ast
+from ast import literal_eval
 
-import requests
 from SPARQLWrapper import SPARQLWrapper, JSON
 from tqdm import tqdm
 from urllib.parse import urlparse
-
-from utils import load_json_df_from_dir
 
 
 class SPARQL:
@@ -24,178 +20,137 @@ class SPARQL:
         return value 
 
     def execute(self, query):
-        self.sparql.setQuery(query)
-        responses = self.sparql.query().convert()
-
-        records = []
-        for response in responses['results']['bindings']:
-            record = {}
-            for key in response:
-                record[key] = self.parse_value(response[key]['value'])
-            records.append(record)
+        records = []     
+        try:
+            self.sparql.setQuery(query)
+            responses = self.sparql.query().convert()
+            for response in responses['results']['bindings']:
+                record = {}
+                for key in response:
+                    record[key] = self.parse_value(response[key]['value'])
+                records.append(record)
+            if records == 0:
+                print("request failed")
+        except Exception as e:
+            print(e)
         return pd.DataFrame(records)
 
-# Step -1
-def relation_aliases():
+def get_all_properties():
     def _query(relation_ids): 
         return f'''
-SELECT ?relation_id ?alias
+SELECT ?item ?itemLabel ?wd ?wdLabel ?ps_ ?ps_Label WHERE {{
+  VALUES ?item {{ 
+    {" ".join([f"wd:{id}" for id in relation_ids])}
+  }}
+  ?item ?p ?statement .
+  ?statement ?ps ?ps_ .
+  ?wd wikibase:claim ?p .
+  ?wd wikibase:statementProperty ?ps .
+  
+  SERVICE wikibase:label {{ bd:serviceParam wikibase:language "[AUTO_LANGUAGE],en". }}
+}}
+'''
+    sparql = SPARQL()
+    
+    df = pd.read_csv("meta.csv")
+    subjects = df["s_uri"].to_list()
+    subject_chunks = [subjects[i:i+100] for i in range(0, len(subjects), 100)]
+    
+    df = pd.concat([sparql.execute(_query(chunk)) for chunk in tqdm(subject_chunks)])
+    df = df[~df["wdLabel"].str.contains(r"ID|category|template|username|instance of|gallery|article|handle|url|wiki|copyright|classification|website|described|tag|archive|reddit|profile|image|list|file", case=False, na=False)]
+    df = df[~df["ps_Label"].str.contains(r'\d', na=False)]
+    df = df[["item", "itemLabel", "wd", "wdLabel", "ps_", "ps_Label"]]
+    df = df.rename(
+        columns = {
+            "item": "subject",
+            "itemLabel": "s_uri",
+            "wd": "r_uri",
+            "wdLabel": "relation",
+            "ps_": "a_uri",
+            "ps_Label": "attribute",
+        }
+    )
+    df.to_csv("data/subjects_to_relations.csv", index=False)
+
+def get_aliases():
+    def _query(uris): 
+        return f'''
+SELECT ?uri ?alias
 WHERE {{
-    {{VALUES ?relation_id {{ {" ".join([f"wd:{id}" for id in relation_ids])} }} }}
-    ?relation_id skos:altLabel ?alias.
+    {{VALUES ?uri {{ {" ".join([f"wd:{uri}" for uri in uris])} }} }}
+    ?uri skos:altLabel ?alias.
     FILTER(LANG(?alias) = "en")
 }}
-'''
-    counterfact_df = pd.read_json("samples/counterfact.json")
-    counterfact_df["relation_id"] = counterfact_df["requested_rewrite"].apply(lambda x: x["relation_id"])
-    relation_ids = counterfact_df["relation_id"].drop_duplicates().to_list()
-
+''' 
     sparql = SPARQL()
-    df = sparql.execute(_query(relation_ids))
-    df.to_csv("data/relation_aliases.csv")
 
-def relation_labels():
-    def _query(relation_ids): 
-        return f'''
-SELECT ?relation_id ?relation
-WHERE {{
-    {{VALUES ?relation_id {{ {" ".join([f"wd:{id}" for id in relation_ids])} }} }}
-    ?relation_id rdfs:label ?relation.  filter(lang(?relation) = "en").
-}}
-'''
-    df = pd.read_csv("data/relation_aliases.csv", index_col=0)
-    relation_ids = df["relation_id"].drop_duplicates().to_list()
+    df = pd.read_csv(os.path.abspath("data/subjects_to_relations.csv"))
+    uris = list(set(df["s_uri"].tolist() + df["a_uri"].tolist()))
+    uri_chunks = [uris[i:i+100] for i in range(0, len(uris), 100)]
 
-    sparql = SPARQL()
-    df2 = sparql.execute(_query(relation_ids))
-    df3 = pd.read_csv("data/relation_aliases.csv", index_col=0)
-    df = pd.concat([df3, df2.rename(columns={"relation": "alias"})])
-    df = df.drop_duplicates()
-    df.to_csv("data/relation_aliases.csv")
-    print("here")
+    aliases = pd.concat([sparql.execute(_query(chunk)) for chunk in tqdm(uri_chunks)])
+    aliases = aliases.groupby("uri")["alias"].agg(list).reset_index(name="aliases")
+    aliases.to_csv("data/all_aliases.csv")
 
-
-# Step 0
-def extract_examples():
-    # df = pd.read_json("data/old_data/mistakes_no_good_relation_before_subject_pred_attribute_rank.json")
-    df = load_json_df_from_dir("data/old_data/good_prompts/knowns_relation_before_subject_good_prompts")
-    df = df[['subject', 'attribute', 'relation_id']]
-    df = df.drop_duplicates()
-    df = df.reset_index().drop("index", axis=1)
-
-    counterfact_df = pd.read_json("data/counterfact.json")
-    counterfact_df["relation_id"] = counterfact_df["requested_rewrite"].apply(lambda x: x["relation_id"])
-    counterfact_df["attribute"] = counterfact_df["requested_rewrite"].apply(lambda x: " " + x["target_true"]["str"])
-    counterfact_df["attribute_id"] = counterfact_df["requested_rewrite"].apply(lambda x: x["target_true"]["id"])
-    counterfact_df = counterfact_df[["relation_id", "attribute", "attribute_id"]]
-    counterfact_df = counterfact_df.drop_duplicates()
-
-    df = df.merge(counterfact_df, on=["relation_id", "attribute"])
-    # df.to_csv("data/step_0/mistakes_sample.csv")
-    df.to_csv("data/step_0/knowns_sample.csv")
-
-
-# Step 1
 def attribute_type():
-    def _query(attribute_ids):
+    def _query(uris):
         return f'''
-SELECT ?attribute_id ?typeLabel
+SELECT ?uri ?typeLabel
 WHERE {{
-  {{VALUES ?attribute_id {{ {" ".join([f"wd:{id}" for id in attribute_ids])} }} }}
-  ?attribute_id wdt:P31 ?type.
+  {{VALUES ?uri {{ {" ".join([f"wd:{uri}" for uri in uris])} }} }}
+  ?uri wdt:P31 ?type.
   SERVICE wikibase:label {{ bd:serviceParam wikibase:language "[AUTO_LANGUAGE],en". }}
-}}        
-'''
-    # df = pd.read_csv("data/step_0/mistakes_sample.csv", index_col=0) # TODO(daniela): this should be a parameter
-    df = pd.read_csv("data/step_0/knowns_sample.csv", index_col=0)
-    attribute_ids = df["attribute_id"].drop_duplicates().to_list()
-
+}}   
+''' 
     sparql = SPARQL()
-    df2 = sparql.execute(_query(attribute_ids))
-    df = df.merge(df2, on="attribute_id")
-    df = df.rename(columns={"typeLabel": "attribute_type"})
-    # df.to_csv("data/step_1/mistakes_sample.csv")
-    df.to_csv("data/step_1/knowns_sample.csv")
+    
+    df = pd.read_csv(os.path.abspath("data/subjects_to_relations.csv"))
+    uris = df["a_uri"].drop_duplicates().to_list()
+    uri_chunks = [uris[i:i+100] for i in range(0, len(uris), 100)]
+    a_types = pd.concat([sparql.execute(_query(chunk)) for chunk in tqdm(uri_chunks)])
+    a_types = a_types.groupby("uri")["typeLabel"].agg(list).reset_index(name="a_type")
+    a_types['a_type'] = a_types['a_type'].apply(lambda x: x if type(x) == list else [])
+    a_types.to_csv("data/attribute_types.csv", index=False)
+
+def aggregate_triples():
+    df = pd.read_csv(os.path.abspath("data/subjects_to_relations.csv"), index_col=0)
+    aliases = pd.read_csv("/home/morg/students/gottesman3/visual-KEEN/data/all_aliases.csv", index_col=0)
+    aliases["aliases"] = aliases["aliases"].apply(lambda x: literal_eval(x))
+    attribute_types = pd.read_csv(os.path.abspath("data/attribute_types.csv"), index_col=0)
+    attribute_types["a_type"] = attribute_types["a_type"].apply(lambda x: literal_eval(x))
+
+    df = df.merge(aliases, left_on="a_uri", right_on="uri", how="left")
+    df["possible_answers"] = df['aliases'].apply(lambda x: x if type(x) == list else [])
+    df["possible_answers"] = df.apply(lambda x: x["possible_answers"] + [x["attribute"]], axis=1)
+    df = df.drop(columns=["aliases"])
+    df = df.merge(attribute_types, left_on="a_uri", right_on="uri", how="left")
+    df = df.drop(columns=["uri"])
+    return df
+
+def build_prompts(df):
+    def best_obj_type(obj_types):
+        prioritized_obj_types = ["city", "capital city", 'metropolis', 'country', 'occupation', 'language', 'type of sport', 'music genre'] # 'cinematic technique', 'team sport'
+        for ot in prioritized_obj_types:
+            if ot in obj_types:
+                return ot
+            for ot_ in obj_types:
+                if "university" in ot_:
+                    return "university"
+                if "city" in ot_:
+                    return "city"
+        return obj_types[0]
+
+    templates = pd.read_csv(os.path.abspath("data/relation_templates.csv"))
+    df = df.merge(templates[["uri", "template"]], left_on="r_uri", right_on="uri")
+    df = df.drop(columns=["uri"])
+    df = df.dropna()
+    query_counts = df.drop_duplicates(["s_uri", "r_uri"]).groupby(["s_uri"])["r_uri"].count().reset_index(name="count")
+    df = df.merge(query_counts[query_counts["count"] > 1][["s_uri"]], on="s_uri")
+
+    df["question"] = df.apply(lambda row: row["template"].replace("[subj]", row["subject"]), axis=1)
+    df["question"] = df.apply(lambda row: row["question"].replace("[obj_type]", best_obj_type(row["a_type"])) if len(row["a_type"]) > 0 else row["question"], axis=1)
+    df = df.drop(columns=["template"])
+    df.to_csv("data/all_questions.csv", index=False)
 
 
-# Step 2 
-def subject_type():
-    def _query(subjects):
-        subjects = [subject.replace("'", "\\'") for subject in subjects]
-        return f'''
-SELECT DISTINCT ?subject ?subject_id
-WHERE {{
-  VALUES ?subject {{ {" ".join([f"'{subject}'" for subject in subjects])} }}
-  ?uri ?predicate ?subject .
-  BIND(STRBEFORE(STR(?uri), "-") AS ?subject_id)
-  FILTER(?predicate = pq:P1810 && ?subject_id != "")
-}}
-'''
-    # df = pd.read_csv("/home/gamir/DER-Roei/dhgottesman/hallucasting/data/step_0/mistakes_sample.csv")
-    df = pd.read_csv("/home/gamir/DER-Roei/dhgottesman/hallucasting/data/step_0/knowns_sample.csv")
-
-    df = df[['subject', 'attribute_id', 'relation_id']]
-    df = df.drop_duplicates()
-    df = df.reset_index().drop("index", axis=1)
-
-    subjects = df["subject"].drop_duplicates().to_list()
-    subject_chunks = [subjects[i:i+20] for i in range(0, len(subjects), 20)]
-    sparql = SPARQL()
-    df = df.merge(pd.concat([sparql.execute(_query(chunk)) for chunk in subject_chunks]), on="subject")
-
-    def _query(triples):
-        return f'''
-SELECT DISTINCT ?subject_id ?relation_id ?attribute_id
-WHERE {{
-  VALUES (?subject_id ?relation_id ?attribute_id) {{ {" ".join([f"(wd:{subject_id} wdt:{relation_id} wd:{attribute_id})" for subject_id, relation_id, attribute_id in triples])} }}
-  ?subject_id ?relation_id ?attribute_id .
-}}       
-'''
-    triples = [tuple(x) for x in df[['subject_id', 'relation_id', 'attribute_id']].itertuples(index=False)]
-    triples_chunks = [triples[i:i+20] for i in range(0, len(triples), 20)]
-    sparql = SPARQL()
-    df2 = df.merge(pd.concat([sparql.execute(_query(chunk)) for chunk in triples_chunks]), on=['subject_id', 'attribute_id', 'relation_id'])
-
-    def _query(subject_ids):
-        return f'''
-SELECT ?subject_id ?typeLabel
-WHERE {{
-  {{VALUES ?subject_id {{ {" ".join([f"wd:{id}" for id in subject_ids])} }} }}
-  ?subject_id wdt:P31 ?type.
-  SERVICE wikibase:label {{ bd:serviceParam wikibase:language "[AUTO_LANGUAGE],en". }}
-}}        
-'''
-    subject_ids = df2["subject_id"].drop_duplicates().to_list()
-    df3 = sparql.execute(_query(subject_ids))
-    df4 = df2.merge(df3, on="subject_id")
-    df4 = df4.rename(columns={"typeLabel": "subject_type"})
-    # df4.to_csv("data/step_2/mistakes_sample.csv")
-    df4.to_csv("data/step_2/knowns_sample.csv")
-
-
-# Step 3
-def input_to_template():
-    # df = pd.read_csv("data/step_1/mistakes_sample.csv", index_col=0) # TODO(daniela): this should be a parameter
-    df = pd.read_csv("data/step_1/knowns_sample.csv", index_col=0) # TODO(daniela): this should be a parameter
-
-    df2 = pd.read_csv("data/relation_aliases.csv", index_col=0)
-
-    df = df.merge(df2, on="relation_id")
-    df = df.rename(columns={"alias": "relation_alias"})
-    df = df.groupby(['subject', 'attribute', 'relation_id', 'attribute_id']).agg({
-        'attribute_type': lambda x: list(set(x)),
-        'relation_alias': lambda x: list(set(x))
-    }).reset_index()
-
-    # df3 = pd.read_csv("data/step_2/mistakes_sample.csv", index_col=0)
-    df3 = pd.read_csv("data/step_2/knowns_sample.csv", index_col=0)
-    df3 = df3.groupby(['subject', 'relation_id', 'attribute_id', 'subject_id']).agg({
-        'subject_type': lambda x: list(set(x)),
-    }).reset_index()
-    df4 = df.merge(df3, on=["subject", "relation_id", "attribute_id"])
-    df4.to_csv("data/step_3/knowns_sample.csv")
-    # df4.to_csv("data/step_3/mistakes_sample.csv")
-
-
-if __name__ == '__main__':
-    input_to_template()
+build_prompts(aggregate_triples()) 

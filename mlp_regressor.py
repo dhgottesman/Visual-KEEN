@@ -6,7 +6,6 @@ import copy
 
 import pandas as pd
 
-import seaborn as sns
 import torch.nn as nn
 import torch.optim as optim
 
@@ -16,13 +15,21 @@ import wandb
 import random
 from scipy.stats import pearsonr
 
+# Deterministic Run
+random_seed = 42
+random.seed(random_seed)
+np.random.seed(random_seed)
+torch.manual_seed(random_seed)
+torch.cuda.manual_seed(random_seed)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(random_seed)
+torch.set_num_threads(1)
+torch.use_deterministic_algorithms(True)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.enabled = False
 
-activations = {
-    "relu": torch.relu,
-    "sigmoid": torch.sigmoid,
-    "gelu": nn.GELU(),
-    "selu": nn.SELU()
-}
+
 optimizers = {
     "adam": optim.AdamW,
     "sgd": optim.SGD
@@ -31,30 +38,14 @@ optimizers = {
 
 class MLPRegressor(nn.Module):
 
-    def __init__(self, device, input_size, output_size, hidden_layer_size, hidden_activation, last_activation, optimizer, learning_rate, max_iter):
-        # Deterministic Run
-        random_seed = 42
-        random.seed(random_seed)
-        np.random.seed(random_seed)
-        torch.manual_seed(random_seed)
-        torch.cuda.manual_seed(random_seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(random_seed)
-        torch.set_num_threads(1)
-        torch.use_deterministic_algorithms(True)
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-        torch.backends.cudnn.enabled = False
-
+    def __init__(self, device, input_size, optimizer, learning_rate, max_iter):
         super(MLPRegressor, self).__init__()
         self.max_iter = max_iter
         self.criterion = nn.MSELoss()
-        self.hidden_activation = activations[hidden_activation]
-        self.last_activation = activations[last_activation]
+        self.last_activation = torch.sigmoid
         self.device = device
         self.layers =  nn.ModuleList(
-            [nn.Linear(input_size, 1, bias=False)] \
-                + [nn.Linear(hidden_layer_size, output_size, bias=False)]
+            [nn.Linear(input_size, 1, bias=False)]
         )
         self.best_weights = []
         self.init_weights = []
@@ -76,18 +67,8 @@ class MLPRegressor(nn.Module):
             self.layers[i].weight = weight
 
     def forward(self, x): 
-        if len(x.shape) == 2:
-            x = self.layers[1](x)
-            return self.last_activation(x) 
-        else:
-            # x = self.layer_norm(x)
-            x = x.permute(0, 2, 1)
-            x = self.layers[0](x)
-            x = self.hidden_activation(x)
-            x = x.permute(0, 2, 1)
-            x = self.layers[1](x)
-            x = x.squeeze(dim=-1)
-            return self.last_activation(x) 
+        x = self.layers[0](x)
+        return self.last_activation(x) 
 
     def predict(self, x):
         with torch.no_grad():

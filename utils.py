@@ -1,5 +1,11 @@
+import os
+import torch
 from ast import literal_eval
+import numpy as np
 import pandas as pd
+
+
+GENERATE_BIOS_PROMPTS = ["USER: <image>\nIdentify by name and generate a biography about the subject of this image\nASSISTANT:"]
 
 
 def split_dataset_into_train_val_test(dataset, features="hidden_states"):
@@ -8,10 +14,79 @@ def split_dataset_into_train_val_test(dataset, features="hidden_states"):
 def document_prefix(subject):
     return f"This document describes {subject}"
 
+def decode_tokens(tokenizer, token_array):
+  if hasattr(token_array, "shape") and len(token_array.shape) > 1:
+    return [decode_tokens(tokenizer, row) for row in token_array]
+  return [tokenizer.decode([t]) for t in token_array]
+
+def find_token_range(tokenizer, token_array, substring):
+    """Find the tokens corresponding to the given substring in token_array."""
+    toks = decode_tokens(tokenizer, token_array)
+    whole_string = "".join(toks)
+    char_loc = whole_string.index(substring)
+    loc = 0
+    tok_start, tok_end = None, None
+    for i, t in enumerate(toks):
+        loc += len(t)
+        if tok_start is None and loc > char_loc:
+            tok_start = i
+        if tok_end is None and loc >= char_loc + len(substring):
+            tok_end = i + 1
+            break
+    return (tok_start, tok_end)
+
+def sample_subjects():
+    df = pd.read_csv(os.path.abspath("data/meta.csv"), index_col=0)
+    df = df.dropna()
+    df = df.sort_values(by="s_pop", ascending=False)
+
+    head = df.head(5000)
+    tail = df.tail(5000)
+    torso = df.sample(1000)
+
+    df = pd.concat([head, torso, tail]).drop_duplicates("s_uri")
+    df = df.reset_index().drop("index", axis=1)
+    df.to_csv("data/full_dataset_subjects.csv")
+
+def _load_csv_df_from_dir(directory, files):
+  files = [f for f in files if f[-4:] == ".csv"]
+  df = None
+  for f in files:
+      fp = os.path.join(directory, f)
+      if df is None:
+          df = pd.read_csv(fp, index_col=0)
+      else:
+          df = pd.concat([df, pd.read_csv(fp, index_col=0)])
+  return df.reset_index()
+
+def _load_tensor_from_files(directory, files):
+    tensors = []
+    for filename in files:
+        if filename.endswith('.pt'):
+            tensor = torch.load(os.path.join(directory, filename))
+            tensors.append(tensor) 
+    return torch.cat(tensors, dim=0)
+
+def _sort_key(part):
+    if part.split('.')[0] == 'part_last':
+        return float('inf')
+    else:
+        return int(part.split('_')[1].split('.')[0])
+
+def load_oeg_generations():
+    directory = os.path.abspath("data/oeg_generations")
+    files = sorted(os.listdir(directory), key=_sort_key)
+    return _load_csv_df_from_dir(directory, files)
+
+def load_inputs():
+    directory = os.path.abspath("data/input_hidden_states")
+    files = sorted(os.listdir(directory), key=_sort_key)
+    return _load_tensor_from_files(directory, files)
+
 def qa_accuracy():
     df = pd.read_csv("PATH TO GENERATED PASSAGES", index_col=0)
     
-    questions = pd.read_csv("PATH TO QUESTIONS FROM WIKIDATA", index_col=0)
+    questions = pd.read_csv(os.path.abspath("data/all_questions.csv"), index_col=0)
     questions["possible_answers"] = questions["possible_answers"].apply(lambda x: literal_eval(x))
     questions = questions.rename(columns={"subj": "subject"})
 

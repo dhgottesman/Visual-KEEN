@@ -113,7 +113,7 @@ if __name__ == "__main__":
     dataset = HiddenStatesDataset(X_train, y_train)
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=1)
 
-    hidden_layer_size = args.cutoff if args.cutoff > -1 else args.hidden_layer_size
+    hidden_layer_size = args.hidden_layer_size
     classifier_model_params = {
         "input_size": len(layers),
         "output_size": 1,
