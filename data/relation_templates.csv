@@ -36,7 +36,6 @@ P162,producer,Who was the producer of [subj]?
 P3373,sibling,Who is the sibling of [subj]?
 P98,editor,Who is the editor of [subj]?
 P25,mother,Who is the mother of [subj]?
-P462,color,What color is [subj]?
 P676,lyrics by,Who wrote the lyrics of [subj]?
 P159,headquarters location,In what [obj_type] are the headquarters of [subj] located?
 P166,award received,What award did [subj] receive?

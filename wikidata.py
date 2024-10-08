@@ -6,6 +6,8 @@ from SPARQLWrapper import SPARQLWrapper, JSON
 from tqdm import tqdm
 from urllib.parse import urlparse
 
+from tqdm import tqdm
+tqdm.pandas()
 
 class SPARQL:
     def __init__(self):
@@ -127,7 +129,7 @@ def aggregate_triples():
     df = df.drop(columns=["uri"])
     return df
 
-def build_prompts(df):
+def build_prompts(df, for_image=False):
     def best_obj_type(obj_types):
         prioritized_obj_types = ["city", "capital city", 'metropolis', 'country', 'occupation', 'language', 'type of sport', 'music genre'] # 'cinematic technique', 'team sport'
         for ot in prioritized_obj_types:
@@ -147,10 +149,11 @@ def build_prompts(df):
     query_counts = df.drop_duplicates(["s_uri", "r_uri"]).groupby(["s_uri"])["r_uri"].count().reset_index(name="count")
     df = df.merge(query_counts[query_counts["count"] > 1][["s_uri"]], on="s_uri")
 
-    df["question"] = df.apply(lambda row: row["template"].replace("[subj]", row["subject"]), axis=1)
-    df["question"] = df.apply(lambda row: row["question"].replace("[obj_type]", best_obj_type(row["a_type"])) if len(row["a_type"]) > 0 else row["question"], axis=1)
+    df["question_for_image"] = df.progress_apply(lambda row: row["template"].replace("[subj]", "the subject of this image"), axis=1)
+    df["question_for_image"] = df.progress_apply(lambda row: row["question_for_image"].replace("[obj_type]", best_obj_type(row["a_type"])) if len(row["a_type"]) > 0 else row["question"], axis=1)
+    df["question"] = df.progress_apply(lambda row: row["template"].replace("[subj]", row["subject"]), axis=1)
+    df["question"] = df.progress_apply(lambda row: row["question"].replace("[obj_type]", best_obj_type(row["a_type"])) if len(row["a_type"]) > 0 else row["question"], axis=1)
     df = df.drop(columns=["template"])
     df.to_csv("data/all_questions.csv", index=False)
-
 
 build_prompts(aggregate_triples()) 
