@@ -22,8 +22,8 @@ class HiddenStateSaver():
 
     def save_hidden_state(self, layer, hs):
         self.hidden_states[layer] = hs[layer].squeeze().detach().to(torch.float32).cpu().numpy()
-
-    def collect_fully_connected(self, token_pos, layers):
+    
+    def collect_hidden_states(self, token_pos, layers):
         return np.stack([self.hidden_states[i][token_pos] for i in layers])
 
 
@@ -51,8 +51,8 @@ def generate_bios_from_image(mp):
 
         hss = HiddenStateSaver()
         for layer in layers:
-            hss.save_hidden_state(layer, mp.model.first_hidden_states)
-        hidden_states.append(hss.collect_fully_connected(last_token_pos, layers))
+            hss.save_image_hidden_state(layer, mp.model.first_hidden_states)
+        hidden_states.append(hss.collect_image_hidden_states(last_token_pos, layers))
         del mp.model.first_hidden_states
 
         if len(hidden_states) == 200:
@@ -67,10 +67,53 @@ def generate_bios_from_image(mp):
     torch.save(torch.tensor(np.stack([hidden_states])).squeeze(), f"data/input_hidden_states/part_{part}.pt")
     pd.DataFrame.from_records(generation_records).to_csv(f"data/oeg_generations/part_{part}.csv")
 
+def generate_bios_from_text(mp):
+    layers = list(range(int(mp.num_layers*.75)-3, int(mp.num_layers*.75)))
+    df = pd.read_csv(os.path.abspath("data/full_dataset_subjects.csv"), index_col=0)
+    generation_records = []
+    hidden_states = []
+    for i, row in tqdm(df.iterrows(), desc="row"):
+        subject = row["subject"]
+        prompt = f"USER: \nGenerate a biography about {subject}\nASSISTANT:"
+        inputs = mp.processor.tokenizer(text=prompt, return_tensors='pt')
+        inputs["input_ids"] = inputs["input_ids"].cuda()
+        inputs["attention_mask"] = inputs["attention_mask"].cuda()
+
+        output = mp.model.generate(**inputs, max_new_tokens=500, do_sample=False, output_hidden_states=True, return_dict_in_generate=True)
+        s_range = find_token_range(mp.processor.tokenizer, inputs["input_ids"][0], subject.replace(" ", ""))
+        last_token_pos = s_range[-1] - 1
+
+        generated_text = mp.processor.batch_decode(output.sequences, skip_special_tokens=True)
+        generation_records.append({
+          "s_uri": row["s_uri"],
+          "subject": row["subject"],
+          "generation": generated_text[0].split("ASSISTANT:")[-1]
+        })
+
+        hss = HiddenStateSaver()
+        for layer in layers:
+            hss.save_hidden_state(layer, mp.model.first_hidden_states)
+        hidden_states.append(hss.collect_hidden_states(last_token_pos, layers))
+        del mp.model.first_hidden_states
+
+        if len(hidden_states) == 200:
+            part = i // 200
+            torch.save(torch.tensor(np.stack([hidden_states])).squeeze(), f"data/input_hidden_states_text/part_{part}.pt")
+            hidden_states = []
+        
+            pd.DataFrame.from_records(generation_records).to_csv(f"data/oeg_generations_text/part_{part}.csv")
+            generation_records = []
+
+    part = "last"
+    torch.save(torch.tensor(np.stack([hidden_states])).squeeze(), f"data/input_hidden_states_text/part_{part}.pt")
+    pd.DataFrame.from_records(generation_records).to_csv(f"data/oeg_generations_text/part_{part}.csv")
+
 def generate_qa_from_image(mp):
     df = pd.read_csv(os.path.abspath("data/full_dataset_subjects.csv"), index_col=0)
     questions = pd.read_csv(os.path.abspath("data/all_questions.csv"), index_col=0)
     df = df.merge(questions, on=["s_uri", "subject"])
+    df = df.drop_duplicates("question")
+    df = df.reset_index().drop("index", axis=1)
     
     generation_records = []
     for i, row in tqdm(df.iterrows(), desc="row"):
@@ -102,7 +145,9 @@ def generate_qa_from_text(mp):
     df = pd.read_csv(os.path.abspath("data/full_dataset_subjects.csv"), index_col=0)
     questions = pd.read_csv(os.path.abspath("data/all_questions.csv"), index_col=0)
     df = df.merge(questions, on=["s_uri", "subject"])
-    
+    df = df.drop_duplicates("question")
+    df = df.reset_index().drop("index", axis=1)
+
     generation_records = []
     for i, row in tqdm(df.iterrows(), desc="row"):
         question = row["question"]
@@ -138,5 +183,5 @@ if __name__ == "__main__":
     # generate_bios_from_image(mp)
 
     mp = setup("llava_7B")
-    generate_qa_from_text(mp)
+    generate_bios_from_text(mp)
 

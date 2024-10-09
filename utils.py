@@ -73,8 +73,13 @@ def _sort_key(part):
     else:
         return int(part.split('_')[1].split('.')[0])
 
-def load_oeg_generations():
+def load_oeg_image_generations():
     directory = os.path.abspath("data/oeg_generations")
+    files = sorted(os.listdir(directory), key=_sort_key)
+    return _load_csv_df_from_dir(directory, files)
+
+def load_qa_image_generations():
+    directory = os.path.abspath("data/qa_generations")
     files = sorted(os.listdir(directory), key=_sort_key)
     return _load_csv_df_from_dir(directory, files)
 
