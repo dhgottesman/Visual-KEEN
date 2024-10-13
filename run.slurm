@@ -1,10 +1,10 @@
 #! /bin/sh
-#SBATCH --job-name=vk_oeg_generation_6000
-#SBATCH --output=output/vk_oeg_generation_6000.out
-#SBATCH --error=output/vk_oeg_generation_6000.err
+#SBATCH --job-name=vk_qa_generation_text_image
+#SBATCH --output=output/vk_qa_generation_text_image.out
+#SBATCH --error=output/vk_qa_generation_text_image.err
 #SBATCH --account=gpu-research
-#SBATCH --constraint="a100"
-#SBATCH --partition=gpu-a100-killable
+#SBATCH --constraint="h100"
+#SBATCH --partition=gpu-h100-killable
 #SBATCH --time=1-00:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=4

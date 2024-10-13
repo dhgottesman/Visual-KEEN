@@ -73,6 +73,8 @@ def generate_bios_from_text(mp):
     generation_records = []
     hidden_states = []
     for i, row in tqdm(df.iterrows(), desc="row"):
+        if i < 2000:
+            continue
         subject = row["subject"]
         prompt = f"USER: \nGenerate a biography about {subject}\nASSISTANT:"
         inputs = mp.processor.tokenizer(text=prompt, return_tensors='pt')
@@ -80,8 +82,12 @@ def generate_bios_from_text(mp):
         inputs["attention_mask"] = inputs["attention_mask"].cuda()
 
         output = mp.model.generate(**inputs, max_new_tokens=500, do_sample=False, output_hidden_states=True, return_dict_in_generate=True)
-        s_range = find_token_range(mp.processor.tokenizer, inputs["input_ids"][0], subject.replace(" ", ""))
-        last_token_pos = s_range[-1] - 1
+        try:
+            s_range = find_token_range(mp.processor.tokenizer, inputs["input_ids"][0], subject.replace(" ", ""))
+            last_token_pos = s_range[-1] - 1
+        except ValueError:
+            s_range = find_token_range(mp.processor.tokenizer, inputs["input_ids"][0], "\nASSISTANT:")
+            last_token_pos = s_range[0] - 1
 
         generated_text = mp.processor.batch_decode(output.sequences, skip_special_tokens=True)
         generation_records.append({
@@ -110,7 +116,8 @@ def generate_bios_from_text(mp):
 
 def generate_qa_from_image(mp):
     df = pd.read_csv(os.path.abspath("data/full_dataset_subjects.csv"), index_col=0)
-    questions = pd.read_csv(os.path.abspath("data/all_questions.csv"), index_col=0)
+    # questions = pd.read_csv(os.path.abspath("data/all_questions.csv"), index_col=0)
+    questions = pd.read_csv(os.path.abspath("data/more_questions.csv"), index_col=0)
     df = df.merge(questions, on=["s_uri", "subject"])
     df = df.drop_duplicates("question")
     df = df.reset_index().drop("index", axis=1)
@@ -135,15 +142,16 @@ def generate_qa_from_image(mp):
 
         if len(generation_records) == 5000:
             part = i // 5000        
-            pd.DataFrame.from_records(generation_records).to_csv(f"data/qa_generations/part_{part}.csv")
+            pd.DataFrame.from_records(generation_records).to_csv(f"data/qa_generations/part_more_{part}.csv")
             generation_records = []
 
     part = "last"
-    pd.DataFrame.from_records(generation_records).to_csv(f"data/qa_generations/part_{part}.csv")
+    pd.DataFrame.from_records(generation_records).to_csv(f"data/qa_generations/part_more_{part}.csv")
 
 def generate_qa_from_text(mp):
     df = pd.read_csv(os.path.abspath("data/full_dataset_subjects.csv"), index_col=0)
-    questions = pd.read_csv(os.path.abspath("data/all_questions.csv"), index_col=0)
+    # questions = pd.read_csv(os.path.abspath("data/all_questions.csv"), index_col=0)
+    questions = pd.read_csv(os.path.abspath("data/more_questions.csv"), index_col=0)
     df = df.merge(questions, on=["s_uri", "subject"])
     df = df.drop_duplicates("question")
     df = df.reset_index().drop("index", axis=1)
@@ -168,11 +176,11 @@ def generate_qa_from_text(mp):
 
         if len(generation_records) == 5000:
             part = i // 5000        
-            pd.DataFrame.from_records(generation_records).to_csv(f"data/qa_generations_text/part_{part}.csv")
+            pd.DataFrame.from_records(generation_records).to_csv(f"data/qa_generations_text/part_more_{part}.csv")
             generation_records = []
 
     part = "last"
-    pd.DataFrame.from_records(generation_records).to_csv(f"data/qa_generations_text/part_{part}.csv")
+    pd.DataFrame.from_records(generation_records).to_csv(f"data/qa_generations_text/part_more_{part}.csv")
 
 if __name__ == "__main__":
     # mp = setup("llava_7B")
@@ -183,5 +191,5 @@ if __name__ == "__main__":
     # generate_bios_from_image(mp)
 
     mp = setup("llava_7B")
-    generate_bios_from_text(mp)
+    generate_qa_from_image(mp)
 

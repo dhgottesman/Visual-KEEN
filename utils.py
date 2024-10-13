@@ -4,11 +4,22 @@ from ast import literal_eval
 import numpy as np
 import pandas as pd
 
+from tqdm import tqdm
+tqdm.pandas()
 
 GENERATE_BIOS_PROMPTS = ["USER: <image>\nIdentify by name and generate a biography about the subject of this image\nASSISTANT:"]
 
 
-def split_dataset_into_train_val_test(dataset, features="hidden_states"):
+def anti_join(df1, df2, columns):
+  df = df1.merge(df2[columns], how='left', on=columns, indicator='source')
+  return df[df["source"] == 'left_only'].drop('source', axis=1)
+
+def split_qa_dataset_into_train_val_test(dataset, features="hidden_states"):
+    inputs = load_qa_image_generations()
+    subjects = pd.read_csv(os.path.abspath("data/full_dataset_subjects.csv"), index_col=0)
+
+
+def split_oeg_dataset_into_train_val_test(dataset, features="hidden_states"):
     return None
 
 def document_prefix(subject):
@@ -83,23 +94,27 @@ def load_qa_image_generations():
     files = sorted(os.listdir(directory), key=_sort_key)
     return _load_csv_df_from_dir(directory, files)
 
+def load_oeg_text_generations():
+    directory = os.path.abspath("data/oeg_generations_text")
+    files = sorted(os.listdir(directory), key=_sort_key)
+    return _load_csv_df_from_dir(directory, files)
+
+def load_qa_text_generations():
+    directory = os.path.abspath("data/qa_generations_text")
+    files = sorted(os.listdir(directory), key=_sort_key)
+    return _load_csv_df_from_dir(directory, files)
+
 def load_inputs():
     directory = os.path.abspath("data/input_hidden_states")
     files = sorted(os.listdir(directory), key=_sort_key)
     return _load_tensor_from_files(directory, files)
 
-def qa_accuracy():
-    df = pd.read_csv("PATH TO GENERATED PASSAGES", index_col=0)
-    
-    questions = pd.read_csv(os.path.abspath("data/all_questions.csv"), index_col=0)
-    questions["possible_answers"] = questions["possible_answers"].apply(lambda x: literal_eval(x))
-    questions = questions.rename(columns={"subj": "subject"})
-
-    df = df.merge(questions, on="question")
-
+def _qa_accuracy(df):    
     def label_generation(generation, answers):
         for answer in answers:
-            if answer.lower() in generation.lower():
+            if answer.isupper() and answer in generation:
+                return 3
+            elif not answer.isupper() and answer.lower() in generation.lower():
                 return 3
         for hedged_answer in ["nobody knows", "I'm sorry", "I can't seem to find the answer", "you help me", "anyone help me", "I'm not sure", "I don't know", "I am not sure", "I\'m not sure", "I'm not entirely sure", "Could you please provide more", "could provide more information", "provide more context", "clarify your question"]:
             if hedged_answer.lower() in generation.lower():
@@ -111,9 +126,9 @@ def qa_accuracy():
     def binary_label(label, class_label):
         return 1 if label == class_label else 0
 
-    df["generation_label"] = df.apply(lambda row: label_generation(row["generation"], row["possible_answers"]), axis=1)
+    df["generation_label"] = df.progress_apply(lambda row: label_generation(row["generation"], row["possible_answers"]), axis=1)
     # Multiple answers for each question, if one of them is correct then mark the question as correct.
-    idx = df.groupby(['subject', 's_uri', 'prop'])["generation_label"].idxmax()
+    idx = df.groupby(['subject', 's_uri', 'r_uri'])["generation_label"].idxmax()
     df = df.iloc[idx]
 
     # Compute correct, hedged, mistake accuracy.
@@ -121,7 +136,7 @@ def qa_accuracy():
     df["hedge"] = df["generation_label"].apply(lambda x: binary_label(x, 2))
     df["mistake"] = df["generation_label"].apply(lambda x: binary_label(x, 1))
 
-    result_df = df.groupby(['subject', 's_uri', "label"]).agg(
+    result_df = df.groupby(['subject', 's_uri']).agg(
         total_examples=('generation_label', 'count'),
         accuracy=('correct', 'mean'),
         hedged_frac=('hedge', 'mean'),
@@ -130,3 +145,21 @@ def qa_accuracy():
 
     result_df = result_df[result_df["total_examples"] > 1]
     return result_df[["subject", "accuracy", "total_examples", "hedged_frac", "mistake_frac"]]
+
+def qa_accuracy_image():
+    df = load_qa_image_generations()
+    questions = pd.read_csv(os.path.abspath("data/all_questions.csv"), index_col=0)
+    questions["possible_answers"] = questions["possible_answers"].progress_apply(lambda x: literal_eval(x))
+    # Duplicates from multiple answers per question and multiple template variations per relation.
+    df = df.merge(questions, on=["subject", "question_for_image", "s_uri"])
+    df = df.reset_index().drop("index", axis=1)
+    return _qa_accuracy(df)
+
+def qa_accuracy_text():
+    df = load_qa_text_generations()
+    questions = pd.read_csv(os.path.abspath("data/all_questions.csv"), index_col=0)
+    questions["possible_answers"] = questions["possible_answers"].progress_apply(lambda x: literal_eval(x))
+    df = df.merge(questions, on=["subject", "question", "s_uri"])
+    return _qa_accuracy(df)
+
+print("here")

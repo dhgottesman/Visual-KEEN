@@ -56,7 +56,7 @@ SELECT ?item ?itemLabel ?wd ?wdLabel ?ps_ ?ps_Label WHERE {{
     
     df = pd.read_csv("meta.csv")
     subjects = df["s_uri"].to_list()
-    subject_chunks = [subjects[i:i+100] for i in range(0, len(subjects), 100)]
+    subject_chunks = [subjects[i:i+20] for i in range(0, len(subjects), 20)]
     
     df = pd.concat([sparql.execute(_query(chunk)) for chunk in tqdm(subject_chunks)])
     df = df[~df["wdLabel"].str.contains(r"ID|category|template|username|instance of|gallery|article|handle|url|wiki|copyright|classification|website|described|tag|archive|reddit|profile|image|list|file", case=False, na=False)]
@@ -112,18 +112,21 @@ WHERE {{
     a_types = pd.concat([sparql.execute(_query(chunk)) for chunk in tqdm(uri_chunks)])
     a_types = a_types.groupby("uri")["typeLabel"].agg(list).reset_index(name="a_type")
     a_types['a_type'] = a_types['a_type'].apply(lambda x: x if type(x) == list else [])
-    a_types.to_csv("data/attribute_types.csv", index=False)
+    a_types.to_csv("data/complete_attribute_types.csv", index=False)
 
 def aggregate_triples():
-    df = pd.read_csv(os.path.abspath("data/subjects_to_relations.csv"), index_col=0)
+    df = pd.read_csv(os.path.abspath("data/subjects_to_relations.csv"))
+    subjects = pd.read_csv("/home/morg/students/gottesman3/visual-KEEN/subject_to_generate_questions_for.csv", index_col=0)
+    df = df.merge(subjects, on="s_uri")
     aliases = pd.read_csv("/home/morg/students/gottesman3/visual-KEEN/data/all_aliases.csv", index_col=0)
     aliases["aliases"] = aliases["aliases"].apply(lambda x: literal_eval(x))
     attribute_types = pd.read_csv(os.path.abspath("data/attribute_types.csv"), index_col=0)
     attribute_types["a_type"] = attribute_types["a_type"].apply(lambda x: literal_eval(x))
 
     df = df.merge(aliases, left_on="a_uri", right_on="uri", how="left")
+    df = df.drop(columns=["uri"])
     df["possible_answers"] = df['aliases'].apply(lambda x: x if type(x) == list else [])
-    df["possible_answers"] = df.apply(lambda x: x["possible_answers"] + [x["attribute"]], axis=1)
+    df["possible_answers"] = df.progress_apply(lambda x: x["possible_answers"] + [x["attribute"]], axis=1)
     df = df.drop(columns=["aliases"])
     df = df.merge(attribute_types, left_on="a_uri", right_on="uri", how="left")
     df = df.drop(columns=["uri"])
@@ -141,7 +144,9 @@ def build_prompts(df, for_image=False):
                 if "city" in ot_:
                     return "city"
         return obj_types[0]
-
+    df = df.drop("subject", axis=1)
+    subjects = pd.read_csv(os.path.abspath("data/meta.csv"))[["s_uri", "subject"]]
+    df = df.merge(subjects, on=["s_uri"])
     templates = pd.read_csv(os.path.abspath("data/relation_templates.csv"))
     df = df.merge(templates[["uri", "template"]], left_on="r_uri", right_on="uri")
     df = df.drop(columns=["uri"])
@@ -154,6 +159,6 @@ def build_prompts(df, for_image=False):
     df["question"] = df.progress_apply(lambda row: row["template"].replace("[subj]", row["subject"]), axis=1)
     df["question"] = df.progress_apply(lambda row: row["question"].replace("[obj_type]", best_obj_type(row["a_type"])) if len(row["a_type"]) > 0 else row["question"], axis=1)
     df = df.drop(columns=["template"])
-    df.to_csv("data/all_questions.csv", index=False)
+    df.to_csv("data/more_questions.csv", index=False)
 
 build_prompts(aggregate_triples()) 
