@@ -14,13 +14,33 @@ def anti_join(df1, df2, columns):
   df = df1.merge(df2[columns], how='left', on=columns, indicator='source')
   return df[df["source"] == 'left_only'].drop('source', axis=1)
 
-def split_qa_dataset_into_train_val_test(dataset, features="hidden_states"):
-    inputs = load_qa_image_generations()
+def split_into_train_eval_test(df):
+    seed = 42
+    df = df.sample(frac=1, random_state=seed).reset_index(drop=True)
+
+    split_index_train = int(0.65 * len(df))
+    train = df.iloc[:split_index_train]
+    split_index_eval = split_index_train + int(0.15 * len(df))
+    val = df.iloc[split_index_train:split_index_eval]
+    test = df.iloc[split_index_eval:]
+    return train, val, test
+
+
+def qa_image_dataset():
+    inputs = load_image_inputs()
     subjects = pd.read_csv(os.path.abspath("data/full_dataset_subjects.csv"), index_col=0)
+    subjects["hidden_states"] = inputs.tolist()
 
+    accuracy = qa_accuracy_image()
+    return subjects.merge(accuracy, on=["subject", "s_uri"])
 
-def split_oeg_dataset_into_train_val_test(dataset, features="hidden_states"):
-    return None
+def qa_text_dataset():
+    inputs = load_text_inputs()
+    subjects = pd.read_csv(os.path.abspath("data/full_dataset_subjects.csv"), index_col=0)
+    subjects["hidden_states"] = inputs.tolist()
+
+    accuracy = qa_accuracy_text()
+    return subjects.merge(accuracy, on=["subject", "s_uri"])
 
 def document_prefix(subject):
     return f"This document describes {subject}"
@@ -104,8 +124,13 @@ def load_qa_text_generations():
     files = sorted(os.listdir(directory), key=_sort_key)
     return _load_csv_df_from_dir(directory, files)
 
-def load_inputs():
+def load_image_inputs():
     directory = os.path.abspath("data/input_hidden_states")
+    files = sorted(os.listdir(directory), key=_sort_key)
+    return _load_tensor_from_files(directory, files)
+
+def load_text_inputs():
+    directory = os.path.abspath("data/input_hidden_states_text")
     files = sorted(os.listdir(directory), key=_sort_key)
     return _load_tensor_from_files(directory, files)
 
@@ -144,7 +169,7 @@ def _qa_accuracy(df):
     ).reset_index()
 
     result_df = result_df[result_df["total_examples"] > 1]
-    return result_df[["subject", "accuracy", "total_examples", "hedged_frac", "mistake_frac"]]
+    return result_df[["subject", "s_uri", "accuracy", "total_examples", "hedged_frac", "mistake_frac"]]
 
 def qa_accuracy_image():
     df = load_qa_image_generations()
