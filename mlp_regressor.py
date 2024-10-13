@@ -89,8 +89,8 @@ class MLPRegressor(nn.Module):
             return result_df, test_loss, test_spearman_corr, test_pearson_corr, test_pearson_p_value
 
     def fit(self, X_train, y_train, X_test, y_test):     
-        X_test = torch.tensor(X_test, dtype=torch.float32).cuda()  
-        y_test = torch.tensor(y_test, dtype=torch.float32).unsqueeze(dim=1).cuda()
+        X_test = torch.tensor(X_test.tolist(), dtype=torch.float32).cuda()  
+        y_test = torch.tensor(y_test.tolist(), dtype=torch.float32).unsqueeze(dim=1).cuda()
         for epoch in range(self.max_iter):
             epoch_train_loss = 0.0
             n_examples = 0

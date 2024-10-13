@@ -87,9 +87,21 @@ if __name__ == "__main__":
     parser.add_argument('--max_iter', type=int)
     parser.add_argument('--batch_size', type=int)
     parser.add_argument('--layers', type=str)
+    parser.add_argument('--input_type', type=str)
+    parser.add_argument('--objective', type=str)
     args = parser.parse_args()  
 
-    dataset = qa_image_dataset()
+    if args.input_type == "image" and args.objective == "qa":
+        dataset = qa_image_dataset()
+    elif args.input_type == "text" and args.objective == "qa":
+        dataset = qa_text_dataset()
+    elif args.input_type == "image" and args.objective == "oeg":
+        dataset = oeg_image_dataset()
+    elif args.input_type == "text" and args.objective == "oeg":
+        dataset = oeg_text_dataset()
+    else:
+        raise Exception("input_type, objective configuration not known")
+
     generator_model_name = "llava_7B"
     mp = setup(generator_model_name)
     layers = list(range(int(mp.num_layers*.75)-3, int(mp.num_layers*.75)))
@@ -106,9 +118,9 @@ if __name__ == "__main__":
         "learning_rate": args.learning_rate,
         "max_iter": args.max_iter,
     }
-    project = f"{generator_model_name}_probe"
+    project = f"{args.input_type}_{args.objective}"
     label = "vocab" if args.vocab_proj else "hs"
-    run_name = f"{generator_model_name}_layers_{args.layers}_lr_{classifier_model_params['learning_rate']}_hidden_{classifier_model_params['input_size']}_epoch_{classifier_model_params['max_iter']}_{label}" 
+    run_name = f"lr_{classifier_model_params['learning_rate']}_hidden_{classifier_model_params['input_size']}_epoch_{classifier_model_params['max_iter']}_{label}" 
     wandb.init(project=project, name=run_name, config=classifier_model_params)
 
     # Build the MLPRegressor model and train it
