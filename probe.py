@@ -93,6 +93,10 @@ if __name__ == "__main__":
 
     if args.input_type == "image" and args.objective == "qa":
         dataset = qa_image_dataset()
+    elif args.input_type == "image_avg" and args.objective == "qa":
+        dataset = qa_image_avg_dataset()
+    elif args.input_type == "image_tok_subject" and args.objective == "qa":
+        dataset = qa_image_tok_subject_dataset()
     elif args.input_type == "text" and args.objective == "qa":
         dataset = qa_text_dataset()
     elif args.input_type == "image" and args.objective == "oeg":

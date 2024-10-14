@@ -1,7 +1,7 @@
 #! /bin/sh
-#SBATCH --job-name=vk_qa_generation_text_image
-#SBATCH --output=output/vk_qa_generation_text_image.out
-#SBATCH --error=output/vk_qa_generation_text_image.err
+#SBATCH --job-name=vk_inputs_image_subject_2000
+#SBATCH --output=output/vk_inputs_image_subject_2000.out
+#SBATCH --error=output/vk_inputs_image_subject_2000.err
 #SBATCH --account=gpu-research
 #SBATCH --constraint="h100"
 #SBATCH --partition=gpu-h100-killable
@@ -11,4 +11,9 @@
 #SBATCH --gpus=1
 #SBATCH --exclude=rack-omerl-g01
 
-python /home/morg/students/gottesman3/visual-KEEN/generation.py
+python generation.py --start 0 --end 2000
+# python generation.py --start 2000 --end 4000
+# python generation.py --start 4000 --end 6000
+# python generation.py --start 6000 --end 8000
+# python generation.py --start 8000 --end 10000
+# python generation.py --start 10000 --end -1

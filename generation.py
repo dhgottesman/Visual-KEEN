@@ -68,7 +68,7 @@ def extract_additional_image_inputs(extract_func, output_dir, start, end):
         raw_image = Image.open(image_file)
         inputs = mp.processor(images=raw_image, text=GENERATE_BIOS_PROMPTS, return_tensors='pt').to(0, torch.float16)
 
-        _ = mp.model.generate(**inputs, max_new_tokens=500, do_sample=False, output_hidden_states=True, return_dict_in_generate=True)
+        _ = mp.model.generate(**inputs, max_new_tokens=1, do_sample=False, output_hidden_states=True, return_dict_in_generate=True)
         hidden_states.append(extract_func(mp, inputs, layers))
         del mp.model.first_hidden_states
 
@@ -238,8 +238,8 @@ def generate_qa_from_text(mp):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_name', type=str, default="llava_7B")
-    parser.add_argument('--start', type=int)
-    parser.add_argument('--end', type=int)
+    parser.add_argument('--start', type=int, default=0)
+    parser.add_argument('--end', type=int, default=-1)
 
     args = parser.parse_args()  
 
@@ -248,10 +248,10 @@ if __name__ == "__main__":
     mp.model._merge_input_ids_with_image_features = types.MethodType(
         hooked_merge_input_ids_with_image_features, mp.model
     )
-    extract_additional_image_inputs(extract_func_average_image, "input_hidden_states_image_avg", args.start, args.end)
+    extract_additional_image_inputs(extract_func_tok_subject, "input_hidden_states_image_tok_subject", args.start, args.end)
 
-    # extract_additional_image_inputs(extract_func_tok_subject, "input_hidden_states_image_tok_subject", 0, 200)
-    # extract_additional_image_inputs(extract_func_tok_image, "input_hidden_states_image_tok_image", 0, 200)
+    # extract_additional_image_inputs(extract_func_average_image, "input_hidden_states_image_avg", args.start, args.end)
+    # extract_additional_image_inputs(extract_func_tok_image, "input_hidden_states_image_tok_image", args.start, args.end)
     
     # mp = setup(args.model_name)
     # mp.model.vision_tower.config.output_hidden_states = True

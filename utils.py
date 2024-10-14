@@ -25,8 +25,24 @@ def split_into_train_eval_test(df):
     test = df.iloc[split_index_eval:]
     return train, val, test
 
+def qa_image_avg_dataset():
+    inputs = load_image_avg()
+    subjects = pd.read_csv(os.path.abspath("data/full_dataset_subjects.csv"), index_col=0)
+    subjects["hidden_states"] = inputs.tolist()
+
+    accuracy = qa_accuracy_image()
+    return subjects.merge(accuracy, on=["subject", "s_uri"])
+
 def qa_image_dataset():
     inputs = load_image_inputs()
+    subjects = pd.read_csv(os.path.abspath("data/full_dataset_subjects.csv"), index_col=0)
+    subjects["hidden_states"] = inputs.tolist()
+
+    accuracy = qa_accuracy_image()
+    return subjects.merge(accuracy, on=["subject", "s_uri"])
+
+def qa_image_tok_subject_dataset():
+    inputs = load_image_tok_subject()
     subjects = pd.read_csv(os.path.abspath("data/full_dataset_subjects.csv"), index_col=0)
     subjects["hidden_states"] = inputs.tolist()
 
@@ -125,6 +141,16 @@ def load_qa_text_generations():
 
 def load_image_inputs():
     directory = os.path.abspath("data/input_hidden_states")
+    files = sorted(os.listdir(directory), key=_sort_key)
+    return _load_tensor_from_files(directory, files)
+
+def load_image_avg():
+    directory = os.path.abspath("data/input_hidden_states_image_avg")
+    files = sorted(os.listdir(directory), key=_sort_key)
+    return _load_tensor_from_files(directory, files)
+
+def load_image_tok_subject():
+    directory = os.path.abspath("data/input_hidden_states_image_tok_subject")
     files = sorted(os.listdir(directory), key=_sort_key)
     return _load_tensor_from_files(directory, files)
 
