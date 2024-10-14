@@ -1,3 +1,5 @@
+import argparse
+
 import os
 import pandas as pd
 from PIL import Image
@@ -234,7 +236,24 @@ def generate_qa_from_text(mp):
     pd.DataFrame.from_records(generation_records).to_csv(f"data/qa_generations_text/part_more_{part}.csv")
 
 if __name__ == "__main__":
-    # mp = setup("llava_7B")
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model_name', type=str, default="llava_7B")
+    parser.add_argument('--start', type=int)
+    parser.add_argument('--end', type=int)
+
+    args = parser.parse_args()  
+
+    mp = setup(args.model_name)
+    mp.model.vision_tower.config.output_hidden_states = True
+    mp.model._merge_input_ids_with_image_features = types.MethodType(
+        hooked_merge_input_ids_with_image_features, mp.model
+    )
+    extract_additional_image_inputs(extract_func_average_image, "input_hidden_states_image_avg", args.start, args.end)
+
+    # extract_additional_image_inputs(extract_func_tok_subject, "input_hidden_states_image_tok_subject", 0, 200)
+    # extract_additional_image_inputs(extract_func_tok_image, "input_hidden_states_image_tok_image", 0, 200)
+    
+    # mp = setup(args.model_name)
     # mp.model.vision_tower.config.output_hidden_states = True
     # mp.model._merge_input_ids_with_image_features = types.MethodType(
     #     hooked_merge_input_ids_with_image_features, mp.model
@@ -244,12 +263,4 @@ if __name__ == "__main__":
     # mp = setup("llava_7B")
     # generate_bios_from_text(mp)
 
-    mp = setup("llava_7B")
-    mp.model.vision_tower.config.output_hidden_states = True
-    mp.model._merge_input_ids_with_image_features = types.MethodType(
-        hooked_merge_input_ids_with_image_features, mp.model
-    )
-    extract_additional_image_inputs(extract_func_average_image, "input_hidden_states_image_avg", 0, 200)
-    extract_additional_image_inputs(extract_func_tok_subject, "input_hidden_states_image_tok_subject", 0, 200)
-    extract_additional_image_inputs(extract_func_tok_image, "input_hidden_states_image_tok_image", 0, 200)
 
