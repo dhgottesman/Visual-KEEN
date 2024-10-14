@@ -25,7 +25,6 @@ def split_into_train_eval_test(df):
     test = df.iloc[split_index_eval:]
     return train, val, test
 
-
 def qa_image_dataset():
     inputs = load_image_inputs()
     subjects = pd.read_csv(os.path.abspath("data/full_dataset_subjects.csv"), index_col=0)
