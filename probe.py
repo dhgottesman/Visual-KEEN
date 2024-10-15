@@ -11,7 +11,6 @@ from mlp_regressor import MLPRegressor
 import torch
 import pickle
 
-from train_classifier_new import qa_accuracy
 from torch.utils.data import DataLoader
 
 from setup import setup, MODEL_NAME_PATH
@@ -55,31 +54,26 @@ class HiddenStatesDataset(Dataset):
         accuracy = self.labels.iloc[idx]
         return torch.tensor(hidden_states, dtype=torch.float32), torch.tensor(accuracy, dtype=torch.float32)
 
-def logits_min_max_layer_token(mt, device, prompt_func, layers, df, vocab_proj):
-    def _extract_features(subject):
-        prompt = prompt_func(subject)
-        with torch.no_grad():
-            inp = mt.tokenizer(prompt, return_tensors="pt").to(device)
-            output = mt.model(**inp, output_hidden_states = True) 
-        hidden_states = []
-        for layer in layers:
-            hs = output["hidden_states"][layer][0][-1]
+def logits_min_max_layer_token(mp, layers, df, vocab_proj):
+    def _extract_features(hidden_states, layers):
+        new_hs = []
+        for i, layer in enumerate(layers):
             if vocab_proj:
-                hs = mt.vocabulary_projection_function(hs, layer)
-            hidden_states.append(hs.detach().cpu().numpy().tolist())
-        return hidden_states
-
-    df["hidden_states"] = df["subject"].progress_apply(_extract_features)
-    n_layers = len(df["hidden_states"].iloc[0])
-    for i in range(n_layers):
-        c = f"layer_{i}"
+                hs = torch.tensor(hidden_states[i])
+                hs = mp.vocabulary_projection_function(hs, layer)
+            new_hs.append(hs.detach().cpu().numpy().tolist())
+        return new_hs
+    if vocab_proj:
+        df["hidden_states"] = df["hidden_states"].apply(_extract_features)
+    for i, l in enumerate(layers):
+        c = f"layer_{l}"
         df[c] = df["hidden_states"].apply(lambda x: x[i])
         tmp = torch.tensor(df[c])
         scaler = preprocessing.MinMaxScaler()
         scaler.fit(tmp)
         tmp = scaler.transform(tmp)
         df[c] = tmp.tolist()
-    df["hidden_states"] = df.apply(lambda row: [row[f"layer_{i}"] for i in range(n_layers)], axis=1)
+    df["hidden_states"] = df.apply(lambda row: [row[f"layer_{l}"] for l in layers], axis=1)
     df["hidden_states"] = df["hidden_states"].apply(lambda x: np.mean(np.array(x), axis=0).tolist())    
     return df
 
@@ -93,46 +87,49 @@ if __name__ == "__main__":
     parser.add_argument('--max_iter', type=int)
     parser.add_argument('--batch_size', type=int)
     parser.add_argument('--layers', type=str)
+    parser.add_argument('--input_type', type=str)
+    parser.add_argument('--objective', type=str)
     args = parser.parse_args()  
 
-    generator_model_name = args.model_name
-    print("Loading", generator_model_name)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
-    mt = setup(MODEL_NAME_PATH[generator_model_name])
-    mt.model = mt.model.to(device)
+    if args.input_type == "image" and args.objective == "qa":
+        dataset = qa_image_dataset()
+    elif args.input_type == "image_avg" and args.objective == "qa":
+        dataset = qa_image_avg_dataset()
+    elif args.input_type == "image_tok_subject" and args.objective == "qa":
+        dataset = qa_image_tok_subject_dataset()
+    elif args.input_type == "text" and args.objective == "qa":
+        dataset = qa_text_dataset()
+    elif args.input_type == "image" and args.objective == "oeg":
+        dataset = oeg_image_dataset()
+    elif args.input_type == "text" and args.objective == "oeg":
+        dataset = oeg_text_dataset()
+    else:
+        raise Exception("input_type, objective configuration not known")
 
-    prompt_func = lambda x: document_prefix(x)
-    layers = list(range(int(mt.num_layers*.75)-5, int(mt.num_layers*.75)))
-    
-    dataset = qa_accuracy(generator_model_name)
-    dataset = dataset[["subject", "accuracy", "total_examples"]]
-    dataset = dataset.reset_index().drop("index",axis=1)
-    dataset = logits_min_max_layer_token(mt, device, prompt_func, layers, dataset, args.vocab_proj)
-    X_train, y_train, X_val, y_val, X_test, y_test = split_dataset_into_train_val_test(dataset)
+    generator_model_name = "llava_7B"
+    mp = setup(generator_model_name)
+    layers = list(range(int(mp.num_layers*.75)-3, int(mp.num_layers*.75)))
+    dataset = logits_min_max_layer_token(mp, layers, dataset, args.vocab_proj)
+    train, val, test = split_into_train_eval_test(dataset)
 
-    dataset = HiddenStatesDataset(X_train, y_train)
+    dataset = HiddenStatesDataset(train["hidden_states"], train["accuracy"])
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=1)
 
     hidden_layer_size = args.hidden_layer_size
     classifier_model_params = {
-        "input_size": len(layers),
-        "output_size": 1,
-        "hidden_layer_size": hidden_layer_size,
-        "hidden_activation": "relu",
-        "last_activation": "sigmoid",
+        "input_size": hidden_layer_size,
         "optimizer": "adam",
         "learning_rate": args.learning_rate,
         "max_iter": args.max_iter,
-        "device": device,
     }
-    project = f"{generator_model_name}_probe"
+    project = f"{args.input_type}_{args.objective}"
     label = "vocab" if args.vocab_proj else "hs"
-    run_name = f"{generator_model_name}_hidden_states_{args.layers}_lr_{classifier_model_params['learning_rate']}_hidden_{classifier_model_params['hidden_layer_size']}_epoch_{classifier_model_params['max_iter']}_{label}{cutoff_label}_min_max_avg_batched" 
+    run_name = f"lr_{classifier_model_params['learning_rate']}_hidden_{classifier_model_params['input_size']}_epoch_{classifier_model_params['max_iter']}_{label}" 
     wandb.init(project=project, name=run_name, config=classifier_model_params)
 
     # Build the MLPRegressor model and train it
-    model = MLPRegressor(**classifier_model_params).to(device)
-    model.fit(dataloader, y_train, X_val, y_val) 
+    model = MLPRegressor(**classifier_model_params).cuda()
+    model.fit(dataloader, train["accuracy"], val["hidden_states"], val["accuracy"]) 
     with open(f"probes/{generator_model_name}_{project}_{run_name}_model.pkl",'wb') as f:
         model.set_to_best_weights()
         pickle.dump(model, f)

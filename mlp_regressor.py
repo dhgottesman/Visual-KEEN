@@ -43,7 +43,6 @@ class MLPRegressor(nn.Module):
         self.max_iter = max_iter
         self.criterion = nn.MSELoss()
         self.last_activation = torch.sigmoid
-        self.device = device
         self.layers =  nn.ModuleList(
             [nn.Linear(input_size, 1, bias=False)]
         )
@@ -91,16 +90,16 @@ class MLPRegressor(nn.Module):
             return result_df, test_loss, test_spearman_corr, test_pearson_corr, test_pearson_p_value
 
     def fit(self, X_train, y_train, X_test, y_test):     
-        X_test = torch.tensor(X_test, dtype=torch.float32).to(self.device)  
-        y_test = torch.tensor(y_test, dtype=torch.float32).unsqueeze(dim=1).to(self.device)
+        X_test = torch.tensor(X_test.tolist(), dtype=torch.float32).cuda()  
+        y_test = torch.tensor(y_test.tolist(), dtype=torch.float32).unsqueeze(dim=1).cuda()
         for epoch in range(self.max_iter):
             epoch_train_loss = 0.0
             n_examples = 0
             for batch in X_train:
                 # Train
                 self.optimizer.zero_grad()
-                preds = self.forward(batch[0].to(torch.float32).to(self.device))
-                train_loss = self.criterion(preds, batch[1].to(torch.float32).unsqueeze(dim=1).to(self.device))
+                preds = self.forward(batch[0].to(torch.float32).cuda())
+                train_loss = self.criterion(preds, batch[1].to(torch.float32).unsqueeze(dim=1).cuda())
                 train_loss.backward()
                 self.optimizer.step()
                 epoch_train_loss += train_loss.item()

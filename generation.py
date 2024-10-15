@@ -1,3 +1,5 @@
+import argparse
+
 import os
 import pandas as pd
 from PIL import Image
@@ -24,8 +26,59 @@ class HiddenStateSaver():
         self.hidden_states[layer] = hs[layer].squeeze().detach().to(torch.float32).cpu().numpy()
     
     def collect_hidden_states(self, token_pos, layers):
-        return np.stack([self.hidden_states[i][token_pos] for i in layers])
+        return np.stack([self.hidden_states[layer][token_pos] for layer in layers])
 
+def extract_func_tok_subject(mp, inputs, layers):
+    hss = HiddenStateSaver()
+    s_range = find_token_range(mp.processor.tokenizer, inputs["input_ids"][0], "subject")
+    last_token_pos = s_range[0]
+    for layer in layers:
+        hss.save_hidden_state(layer, mp.model.first_hidden_states)
+    return hss.collect_hidden_states(last_token_pos, layers)
+
+def extract_func_tok_image(mp, inputs, layers):
+    hss = HiddenStateSaver()
+    s_range = find_token_range(mp.processor.tokenizer, inputs["input_ids"][0], "image\n")
+    last_token_pos = s_range[0]
+    for layer in layers:
+        hss.save_hidden_state(layer, mp.model.first_hidden_states)
+    return hss.collect_hidden_states(last_token_pos, layers)
+
+def extract_func_average_image(mp, inputs, layers):
+    hss = HiddenStateSaver()
+    image_token_range = torch.where(mp.model.image_to_overwrite[0] == True)[0]
+    for layer in layers:
+        hss.save_hidden_state(layer, mp.model.first_hidden_states)
+    hidden_states = []
+    for pos in image_token_range:
+        hidden_states.append(hss.collect_hidden_states(pos, layers))
+    return np.mean(np.stack(hidden_states), axis=0)
+
+def extract_additional_image_inputs(extract_func, output_dir, start, end):
+    layers = list(range(int(mp.num_layers*.75)-3, int(mp.num_layers*.75)))
+    df = pd.read_csv(os.path.abspath("data/full_dataset_subjects.csv"), index_col=0)
+    hidden_states = []
+    for i, row in tqdm(df.iterrows(), desc="row"):
+        if i < start:
+            continue
+        if i == end:
+            # Assumes already wrote out last batch, i.e. if end == 200, that batch i=[0,199] would have already been written.
+            return
+        image_file = os.path.join("/home/morg/dataset/imdb_wiki/wiki", row["path"])
+        raw_image = Image.open(image_file)
+        inputs = mp.processor(images=raw_image, text=GENERATE_BIOS_PROMPTS, return_tensors='pt').to(0, torch.float16)
+
+        _ = mp.model.generate(**inputs, max_new_tokens=1, do_sample=False, output_hidden_states=True, return_dict_in_generate=True)
+        hidden_states.append(extract_func(mp, inputs, layers))
+        del mp.model.first_hidden_states
+
+        if len(hidden_states) == 200:
+            part = i // 200
+            torch.save(torch.tensor(np.stack([hidden_states])).squeeze(), f"data/{output_dir}/part_{part}.pt")
+            hidden_states = []
+
+    part = "last"
+    torch.save(torch.tensor(np.stack([hidden_states])).squeeze(), f"data/{output_dir}/part_{part}.pt")
 
 def generate_bios_from_image(mp):
     layers = list(range(int(mp.num_layers*.75)-3, int(mp.num_layers*.75)))
@@ -52,7 +105,7 @@ def generate_bios_from_image(mp):
         hss = HiddenStateSaver()
         for layer in layers:
             hss.save_image_hidden_state(layer, mp.model.first_hidden_states)
-        hidden_states.append(hss.collect_image_hidden_states(last_token_pos, layers))
+        hidden_states.append(hss.collect_hidden_states(last_token_pos, layers))
         del mp.model.first_hidden_states
 
         if len(hidden_states) == 200:
@@ -183,13 +236,31 @@ def generate_qa_from_text(mp):
     pd.DataFrame.from_records(generation_records).to_csv(f"data/qa_generations_text/part_more_{part}.csv")
 
 if __name__ == "__main__":
-    # mp = setup("llava_7B")
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model_name', type=str, default="llava_7B")
+    parser.add_argument('--start', type=int, default=0)
+    parser.add_argument('--end', type=int, default=-1)
+
+    args = parser.parse_args()  
+
+    mp = setup(args.model_name)
+    mp.model.vision_tower.config.output_hidden_states = True
+    mp.model._merge_input_ids_with_image_features = types.MethodType(
+        hooked_merge_input_ids_with_image_features, mp.model
+    )
+    extract_additional_image_inputs(extract_func_tok_subject, "input_hidden_states_image_tok_subject", args.start, args.end)
+
+    # extract_additional_image_inputs(extract_func_average_image, "input_hidden_states_image_avg", args.start, args.end)
+    # extract_additional_image_inputs(extract_func_tok_image, "input_hidden_states_image_tok_image", args.start, args.end)
+    
+    # mp = setup(args.model_name)
     # mp.model.vision_tower.config.output_hidden_states = True
     # mp.model._merge_input_ids_with_image_features = types.MethodType(
     #     hooked_merge_input_ids_with_image_features, mp.model
     # )
     # generate_bios_from_image(mp)
 
-    mp = setup("llava_7B")
-    generate_qa_from_image(mp)
+    # mp = setup("llava_7B")
+    # generate_bios_from_text(mp)
+
 
