@@ -38,7 +38,7 @@ optimizers = {
 
 class MLPRegressor(nn.Module):
 
-    def __init__(self, device, input_size, optimizer, learning_rate, max_iter):
+    def __init__(self, device, input_size, optimizer, learning_rate, max_iter, T_max=None):
         super(MLPRegressor, self).__init__()
         self.max_iter = max_iter
         self.criterion = nn.MSELoss()
@@ -51,6 +51,7 @@ class MLPRegressor(nn.Module):
         self.init_weights = []
         self._initialize_weights()
         self.optimizer = optimizers[optimizer](self.parameters(), lr=learning_rate)
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=T_max) if T_max is not None else None
         self.best_train_loss, self.best_test_pearson_corr = 1, -1
         self.initial_train, self.initial_test, self.final_train, self.final_test = None, None, None, None 
 
@@ -105,6 +106,9 @@ class MLPRegressor(nn.Module):
                 epoch_train_loss += train_loss.item()
                 n_examples += batch[0].shape[0]
 
+            if self.scheduler is not None:
+                self.scheduler.step()
+            
             # Test 
             epoch_train_loss = epoch_train_loss / y_train.shape[0]
             result_df, test_loss, test_spearman_corr, test_pearson_corr, test_pearson_p_value = self.validate(X_test, y_test)
