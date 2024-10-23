@@ -1,5 +1,5 @@
 import torch
-from overwritten_methods import llava_forward
+from overwritten_methods import llava_forward, preprocess
 import transformers
 from transformers import AutoProcessor, LlavaForConditionalGeneration, BitsAndBytesConfig
 
@@ -54,8 +54,11 @@ class LLaVAModelAndProcessor:
         self.processor = AutoProcessor.from_pretrained(model_name)
         self.num_layers = len(self.model.language_model.model.layers)
         self.vocabulary_projection_function = lambda x, layer: self.model.language_model.lm_head(self.model.language_model.model.norm(x)) if layer < self.num_layers else self.model.language_model.lm_head(x) 
+        self.patch_size = self.model.vision_tower.vision_model.embeddings.patch_size
+        self.num_patches = self.processor.image_processor.crop_size["height"] // self.patch_size
 
         self.model.forward = llava_forward.__get__(self.model, self.model.__class__)
+        self.processor.image_processor.preprocess = preprocess.__get__(self.processor.image_processor, self.processor.image_processor.__class__)
 
     def __repr__(self):
         """String representation of this class.

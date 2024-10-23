@@ -25,16 +25,24 @@ def split_into_train_eval_test(df):
     test = df.iloc[split_index_eval:]
     return train, val, test
 
-def qa_image_avg_dataset():
-    inputs = load_image_avg()
+def qa_text_dataset():
+    inputs = load_text_inputs()
+    subjects = pd.read_csv(os.path.abspath("data/full_dataset_subjects.csv"), index_col=0)
+    subjects["hidden_states"] = inputs.tolist()
+
+    accuracy = qa_accuracy_text()
+    return subjects.merge(accuracy, on=["subject", "s_uri"])
+
+def qa_image_dataset():
+    inputs = load_image_inputs()
     subjects = pd.read_csv(os.path.abspath("data/full_dataset_subjects.csv"), index_col=0)
     subjects["hidden_states"] = inputs.tolist()
 
     accuracy = qa_accuracy_image()
     return subjects.merge(accuracy, on=["subject", "s_uri"])
 
-def qa_image_dataset():
-    inputs = load_image_inputs()
+def qa_image_avg_dataset():
+    inputs = load_image_avg()
     subjects = pd.read_csv(os.path.abspath("data/full_dataset_subjects.csv"), index_col=0)
     subjects["hidden_states"] = inputs.tolist()
 
@@ -49,12 +57,39 @@ def qa_image_tok_subject_dataset():
     accuracy = qa_accuracy_image()
     return subjects.merge(accuracy, on=["subject", "s_uri"])
 
-def qa_text_dataset():
-    inputs = load_text_inputs()
+def qa_image_face_dataset():
+    inputs = load_face_image_inputs()
+    subjects = pd.read_csv(os.path.abspath("data/full_dataset_subjects.csv"), index_col=0)
+    subjects["hidden_states"] = inputs.tolist()
+    subjects["remove"] = subjects["hidden_states"].progress_apply(lambda x: torch.all(torch.tensor(x) == -1).item())
+    subjects = subjects[subjects["remove"] == False]
+    subjects = subjects.drop("remove", axis=1)
+
+    accuracy = qa_accuracy_image()
+    return subjects.merge(accuracy, on=["subject", "s_uri"])
+
+def qa_image_embeddings_dataset():
+    inputs = load_image_embeddings_inputs()
     subjects = pd.read_csv(os.path.abspath("data/full_dataset_subjects.csv"), index_col=0)
     subjects["hidden_states"] = inputs.tolist()
 
-    accuracy = qa_accuracy_text()
+    accuracy = qa_accuracy_image()
+    return subjects.merge(accuracy, on=["subject", "s_uri"])
+
+def qa_image_weighted_avg_dataset():
+    inputs = load_image_weighted_avg_inputs()
+    subjects = pd.read_csv(os.path.abspath("data/full_dataset_subjects.csv"), index_col=0)
+    subjects["hidden_states"] = inputs.tolist()
+
+    accuracy = qa_accuracy_image()
+    return subjects.merge(accuracy, on=["subject", "s_uri"])
+
+def qa_image_last_prompt_tok_dataset():
+    inputs = load_image_last_prompt_tok_inputs()
+    subjects = pd.read_csv(os.path.abspath("data/full_dataset_subjects.csv"), index_col=0)
+    subjects["hidden_states"] = inputs.tolist()
+
+    accuracy = qa_accuracy_image()
     return subjects.merge(accuracy, on=["subject", "s_uri"])
 
 def document_prefix(subject):
@@ -159,6 +194,26 @@ def load_text_inputs():
     files = sorted(os.listdir(directory), key=_sort_key)
     return _load_tensor_from_files(directory, files)
 
+def load_face_image_inputs():
+    directory = os.path.abspath("data/input_hidden_states_only_face_image_avg")
+    files = sorted(os.listdir(directory), key=_sort_key)
+    return _load_tensor_from_files(directory, files)
+
+def load_image_embeddings_inputs():
+    directory = os.path.abspath("data/input_hidden_states_image_embeddings")
+    files = sorted(os.listdir(directory), key=_sort_key)
+    return _load_tensor_from_files(directory, files)
+
+def load_image_weighted_avg_inputs():
+    directory = os.path.abspath("data/input_hidden_states_image_weighted_avg")
+    files = sorted(os.listdir(directory), key=_sort_key)
+    return _load_tensor_from_files(directory, files)
+
+def load_image_last_prompt_tok_inputs():
+    directory = os.path.abspath("data/input_hidden_states_last_prompt_token")
+    files = sorted(os.listdir(directory), key=_sort_key)
+    return _load_tensor_from_files(directory, files)
+
 def _qa_accuracy(df):    
     def label_generation(generation, answers):
         for answer in answers:
@@ -210,6 +265,27 @@ def qa_accuracy_text():
     questions = pd.read_csv(os.path.abspath("data/all_questions.csv"), index_col=0)
     questions["possible_answers"] = questions["possible_answers"].progress_apply(lambda x: literal_eval(x))
     df = df.merge(questions, on=["subject", "question", "s_uri"])
-    return _qa_accuracy(df)
+    return _qa_accuracy(df)    
+
+def get_embedding_indices_from_bounding_box(x_min, y_min, x_max, y_max, patch_size, num_patches):
+    # Calculate the patch indices covering the bounding box
+    patch_x_min = x_min // patch_size
+    patch_y_min = y_min // patch_size
+    patch_x_max = x_max // patch_size
+    patch_y_max = y_max // patch_size
+
+    # Ensure indices are within valid range
+    patch_x_min = max(0, patch_x_min)
+    patch_y_min = max(0, patch_y_min)
+    patch_x_max = min(num_patches - 1, patch_x_max)
+    patch_y_max = min(num_patches - 1, patch_y_max)
+
+    embedding_indices = []
+    for y in range(patch_y_min, patch_y_max + 1):
+        for x in range(patch_x_min, patch_x_max + 1):
+            patch_index = y * num_patches + x  # Row-major order
+            embedding_index = 1 + patch_index  # +1 for class embedding
+            embedding_indices.append(embedding_index)
+    return embedding_indices
 
 print("here")

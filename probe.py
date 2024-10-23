@@ -67,7 +67,7 @@ def logits_min_max_layer_token(mp, layers, df, vocab_proj):
         df["hidden_states"] = df["hidden_states"].apply(_extract_features)
     for i, l in enumerate(layers):
         c = f"layer_{l}"
-        df[c] = df["hidden_states"].apply(lambda x: x[i])
+        df[c] = df["hidden_states"].apply(lambda x: x[i] if len(layers) > 1 else x)
         tmp = torch.tensor(df[c])
         scaler = preprocessing.MinMaxScaler()
         scaler.fit(tmp)
@@ -76,6 +76,30 @@ def logits_min_max_layer_token(mp, layers, df, vocab_proj):
     df["hidden_states"] = df.apply(lambda row: [row[f"layer_{l}"] for l in layers], axis=1)
     df["hidden_states"] = df["hidden_states"].apply(lambda x: np.mean(np.array(x), axis=0).tolist())    
     return df
+
+def eval_probe(input_type, val, test):
+    probe_path = {
+        "image": "probes/llava_7B_image_qa_lr_5e-05_hidden_4096_epoch_200_hs_model.pkl",
+        "image_avg": "probes/llava_7B_image_avg_qa_lr_5e-05_hidden_4096_epoch_200_hs_model.pkl",
+        "image_tok_subject": "probes/llava_7B_image_tok_subject_qa_lr_0.0001_hidden_4096_epoch_200_hs_model.pkl",
+        "text": "probes/llava_7B_text_qa_lr_5e-05_hidden_4096_epoch_200_hs_model.pkl",
+        "image_face_only": "probes/llava_7B_image_face_only_qa_lr_0.0001_hidden_4096_epoch_200_hs_model.pkl",
+        "image_embeddings": "probes/llava_7B_image_embeddings_qa_lr_5e-05_hidden_4096_epoch_200_hs_model.pkl",
+        "image_weighted_avg": "probes/llava_7B_image_weighted_avg_qa_lr_5e-05_hidden_4096_epoch_200_hs_model.pkl",
+        "image_last_prompt_tok": "probes/llava_7B_image_last_prompt_tok_qa_lr_5e-05_hidden_4096_epoch_200_hs_model.pkl",
+    }
+    loaded_probe = pickle.load(open(os.path.abspath(probe_path[input_type]), 'rb')).cuda()
+    full_validation_set = pd.concat([val, test])
+    full_validation_set = full_validation_set.reset_index().drop("index", axis=1)
+
+    X_full_val = torch.tensor(full_validation_set["hidden_states"].tolist(), dtype=torch.float32).cuda()
+    y_full_val = torch.tensor(full_validation_set["accuracy"].tolist(), dtype=torch.float32).unsqueeze(dim=1).cuda()
+
+    result_df, test_loss, test_pearson_corr, test_pearson_p_value = loaded_probe.validate(X_full_val, y_full_val)
+    print(f"hs {generator_model_name} Pearson correlation: {test_pearson_corr:.2f} test_loss: {test_loss:.3f} test_pearson_p_value: {test_pearson_p_value}")
+    result_df["subject"] = full_validation_set["subject"]
+    result_df["s_uri"] = full_validation_set["s_uri"]
+    result_df.to_csv(f"scores/{input_type}")
 
 
 if __name__ == "__main__":
@@ -90,7 +114,11 @@ if __name__ == "__main__":
     parser.add_argument('--input_type', type=str)
     parser.add_argument('--objective', type=str)
     args = parser.parse_args()  
-
+    
+    generator_model_name = "llava_7B"
+    mp = setup(generator_model_name)
+    layers = list(range(int(mp.num_layers*.75)-3, int(mp.num_layers*.75)))
+    
     if args.input_type == "image" and args.objective == "qa":
         dataset = qa_image_dataset()
     elif args.input_type == "image_avg" and args.objective == "qa":
@@ -99,6 +127,15 @@ if __name__ == "__main__":
         dataset = qa_image_tok_subject_dataset()
     elif args.input_type == "text" and args.objective == "qa":
         dataset = qa_text_dataset()
+    elif args.input_type == "image_face_only" and args.objective == "qa":
+        dataset = qa_image_face_dataset()
+    elif args.input_type == "image_embeddings" and args.objective == "qa":
+        layers = [0]
+        dataset = qa_image_embeddings_dataset()
+    elif args.input_type == "image_weighted_avg" and args.objective == "qa":
+        dataset = qa_image_weighted_avg_dataset()
+    elif args.input_type == "image_last_prompt_tok" and args.objective == "qa":
+        dataset = qa_image_last_prompt_tok_dataset()
     elif args.input_type == "image" and args.objective == "oeg":
         dataset = oeg_image_dataset()
     elif args.input_type == "text" and args.objective == "oeg":
@@ -106,32 +143,31 @@ if __name__ == "__main__":
     else:
         raise Exception("input_type, objective configuration not known")
 
-    generator_model_name = "llava_7B"
-    mp = setup(generator_model_name)
-    layers = list(range(int(mp.num_layers*.75)-3, int(mp.num_layers*.75)))
     dataset = logits_min_max_layer_token(mp, layers, dataset, args.vocab_proj)
     train, val, test = split_into_train_eval_test(dataset)
 
-    dataset = HiddenStatesDataset(train["hidden_states"], train["accuracy"])
-    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=1)
+    eval_probe(args.input_type, val, test)
 
-    hidden_layer_size = args.hidden_layer_size
-    classifier_model_params = {
-        "input_size": hidden_layer_size,
-        "optimizer": "adam",
-        "learning_rate": args.learning_rate,
-        "max_iter": args.max_iter,
-    }
-    project = f"{args.input_type}_{args.objective}"
-    label = "vocab" if args.vocab_proj else "hs"
-    run_name = f"lr_{classifier_model_params['learning_rate']}_hidden_{classifier_model_params['input_size']}_epoch_{classifier_model_params['max_iter']}_{label}" 
-    wandb.init(project=project, name=run_name, config=classifier_model_params)
+    # dataset = HiddenStatesDataset(train["hidden_states"], train["accuracy"])
+    # dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=1)
 
-    # Build the MLPRegressor model and train it
-    model = MLPRegressor(**classifier_model_params).cuda()
-    model.fit(dataloader, train["accuracy"], val["hidden_states"], val["accuracy"]) 
-    with open(f"probes/{generator_model_name}_{project}_{run_name}_model.pkl",'wb') as f:
-        model.set_to_best_weights()
-        pickle.dump(model, f)
+    # hidden_layer_size = args.hidden_layer_size
+    # classifier_model_params = {
+    #     "input_size": hidden_layer_size,
+    #     "optimizer": "adam",
+    #     "learning_rate": args.learning_rate,
+    #     "max_iter": args.max_iter,
+    # }
+    # project = f"{args.input_type}_{args.objective}"
+    # label = "vocab" if args.vocab_proj else "hs"
+    # run_name = f"lr_{classifier_model_params['learning_rate']}_hidden_{classifier_model_params['input_size']}_epoch_{classifier_model_params['max_iter']}_{label}" 
+    # wandb.init(project=project, name=run_name, config=classifier_model_params)
+
+    # # Build the MLPRegressor model and train it
+    # model = MLPRegressor(**classifier_model_params).cuda()
+    # model.fit(dataloader, train["accuracy"], val["hidden_states"], val["accuracy"]) 
+    # with open(f"probes/{generator_model_name}_{project}_{run_name}_model.pkl",'wb') as f:
+    #     model.set_to_best_weights()
+    #     pickle.dump(model, f)
 
 

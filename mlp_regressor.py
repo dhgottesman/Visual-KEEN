@@ -38,7 +38,7 @@ optimizers = {
 
 class MLPRegressor(nn.Module):
 
-    def __init__(self, device, input_size, optimizer, learning_rate, max_iter, T_max=None):
+    def __init__(self, input_size, optimizer, learning_rate, max_iter, T_max=None):
         super(MLPRegressor, self).__init__()
         self.max_iter = max_iter
         self.criterion = nn.MSELoss()
@@ -84,10 +84,10 @@ class MLPRegressor(nn.Module):
                     "target": y_test.squeeze(dim=-1).detach().cpu().numpy()
                 }
             )
-            test_spearman_corr = result_df.corr(method="spearman").iloc[0, 1]
+            # test_spearman_corr = result_df.corr(method="spearman").iloc[0, 1]
             # test_pearson_corr = result_df.corr(method="pearson").iloc[0, 1]
             test_pearson_corr, test_pearson_p_value = pearsonr(result_df["preds"], result_df["target"])
-            return result_df, test_loss, test_spearman_corr, test_pearson_corr, test_pearson_p_value
+            return result_df, test_loss, test_pearson_corr, test_pearson_p_value
 
     def fit(self, X_train, y_train, X_test, y_test):     
         X_test = torch.tensor(X_test.tolist(), dtype=torch.float32).cuda()  
