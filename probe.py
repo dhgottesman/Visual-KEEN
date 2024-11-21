@@ -101,6 +101,29 @@ def eval_probe(input_type, val, test):
     result_df["s_uri"] = full_validation_set["s_uri"]
     result_df.to_csv(f"scores/{input_type}")
 
+def train_probe(args, generator_model_name, train, val):
+    dataset = HiddenStatesDataset(train["hidden_states"], train["accuracy"])
+    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=1)
+
+    hidden_layer_size = args.hidden_layer_size
+    classifier_model_params = {
+        "input_size": hidden_layer_size,
+        "optimizer": "adam",
+        "learning_rate": args.learning_rate,
+        "max_iter": args.max_iter,
+    }
+    project = f"{args.input_type}_{args.objective}"
+    label = "vocab" if args.vocab_proj else "hs"
+    run_name = f"lr_{classifier_model_params['learning_rate']}_hidden_{classifier_model_params['input_size']}_epoch_{classifier_model_params['max_iter']}_{label}" 
+    wandb.init(project=project, name=run_name, config=classifier_model_params)
+
+    # Build the MLPRegressor model and train it
+    model = MLPRegressor(**classifier_model_params).cuda()
+    model.fit(dataloader, train["accuracy"], val["hidden_states"], val["accuracy"]) 
+    with open(f"probes/{generator_model_name}_{project}_{run_name}_model.pkl",'wb') as f:
+        model.set_to_best_weights()
+        pickle.dump(model, f)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -136,10 +159,6 @@ if __name__ == "__main__":
         dataset = qa_image_weighted_avg_dataset()
     elif args.input_type == "image_last_prompt_tok" and args.objective == "qa":
         dataset = qa_image_last_prompt_tok_dataset()
-    elif args.input_type == "image" and args.objective == "oeg":
-        dataset = oeg_image_dataset()
-    elif args.input_type == "text" and args.objective == "oeg":
-        dataset = oeg_text_dataset()
     else:
         raise Exception("input_type, objective configuration not known")
 
@@ -148,26 +167,6 @@ if __name__ == "__main__":
 
     eval_probe(args.input_type, val, test)
 
-    # dataset = HiddenStatesDataset(train["hidden_states"], train["accuracy"])
-    # dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=1)
 
-    # hidden_layer_size = args.hidden_layer_size
-    # classifier_model_params = {
-    #     "input_size": hidden_layer_size,
-    #     "optimizer": "adam",
-    #     "learning_rate": args.learning_rate,
-    #     "max_iter": args.max_iter,
-    # }
-    # project = f"{args.input_type}_{args.objective}"
-    # label = "vocab" if args.vocab_proj else "hs"
-    # run_name = f"lr_{classifier_model_params['learning_rate']}_hidden_{classifier_model_params['input_size']}_epoch_{classifier_model_params['max_iter']}_{label}" 
-    # wandb.init(project=project, name=run_name, config=classifier_model_params)
-
-    # # Build the MLPRegressor model and train it
-    # model = MLPRegressor(**classifier_model_params).cuda()
-    # model.fit(dataloader, train["accuracy"], val["hidden_states"], val["accuracy"]) 
-    # with open(f"probes/{generator_model_name}_{project}_{run_name}_model.pkl",'wb') as f:
-    #     model.set_to_best_weights()
-    #     pickle.dump(model, f)
 
 

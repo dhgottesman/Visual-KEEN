@@ -287,5 +287,3 @@ def get_embedding_indices_from_bounding_box(x_min, y_min, x_max, y_max, patch_si
             embedding_index = 1 + patch_index  # +1 for class embedding
             embedding_indices.append(embedding_index)
     return embedding_indices
-
-print("here")

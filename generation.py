@@ -317,10 +317,10 @@ if __name__ == "__main__":
 
     extract_additional_image_inputs(extract_last_prompt_token, "input_hidden_states_last_prompt_token", args.start, args.end)
 
+    # Additional experiments
+    #
     # extract_additional_image_inputs(extract_func_tok_subject, "input_hidden_states_image_tok_subject", args.start, args.end)
-
-    #extract_face_image_inputs(extract_func_average_image, "input_hidden_states_only_face_image_avg", args.start, args.end)
-    
+    # extract_face_image_inputs(extract_func_average_image, "input_hidden_states_only_face_image_avg", args.start, args.end)
     # extract_additional_image_inputs(extract_func_tok_image, "input_hidden_states_image_tok_image", args.start, args.end)
     
     # mp = setup(args.model_name)
@@ -329,7 +329,6 @@ if __name__ == "__main__":
     #     hooked_merge_input_ids_with_image_features, mp.model
     # )
     # generate_bios_from_image(mp)
-
     # mp = setup("llava_7B")
     # generate_bios_from_text(mp)
 

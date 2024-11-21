@@ -84,8 +84,6 @@ class MLPRegressor(nn.Module):
                     "target": y_test.squeeze(dim=-1).detach().cpu().numpy()
                 }
             )
-            # test_spearman_corr = result_df.corr(method="spearman").iloc[0, 1]
-            # test_pearson_corr = result_df.corr(method="pearson").iloc[0, 1]
             test_pearson_corr, test_pearson_p_value = pearsonr(result_df["preds"], result_df["target"])
             return result_df, test_loss, test_pearson_corr, test_pearson_p_value
 
