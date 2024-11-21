@@ -4,7 +4,6 @@ import os
 import pandas as pd
 from PIL import Image
 
-import random
 import numpy as np
 import torch
 from setup import *
@@ -15,9 +14,7 @@ from tqdm import tqdm
 tqdm.pandas()
 import types
 
-import cv2
 import matplotlib.pyplot as plt
-import math
 
 from overwritten_methods import hooked_merge_input_ids_with_image_features
 
@@ -269,8 +266,7 @@ def generate_qa_from_image(mp):
 
 def generate_qa_from_text(mp):
     df = pd.read_csv(os.path.abspath("data/full_dataset_subjects.csv"), index_col=0)
-    # questions = pd.read_csv(os.path.abspath("data/all_questions.csv"), index_col=0)
-    questions = pd.read_csv(os.path.abspath("data/more_questions.csv"), index_col=0)
+    questions = pd.read_csv(os.path.abspath("data/all_questions.csv"), index_col=0)
     df = df.merge(questions, on=["s_uri", "subject"])
     df = df.drop_duplicates("question")
     df = df.reset_index().drop("index", axis=1)
